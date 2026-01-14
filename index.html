@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Coasters Tavern Digital Signage</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;600;700&family=Playfair+Display:ital,wght@0,700;1,400&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Montserrat', sans-serif;
+            background-color: #000;
+            color: #f3f4f6;
+            overflow: hidden;
+            margin: 0;
+            padding: 0;
+            cursor: none;
+        }
+        h1, h2, h3, .serif {
+            font-family: 'Playfair Display', serif;
+        }
+        
+        /* Ken Burns Effect */
+        @keyframes kenburns {
+            0% { transform: scale(1); }
+            100% { transform: scale(1.15); }
+        }
+        .animate-ken-burns {
+            animation: kenburns 30s infinite alternate linear;
+        }
+
+        /* Slide Transitions */
+        .slide {
+            opacity: 0;
+            transition: opacity 1.5s ease-in-out;
+            position: absolute;
+            inset: 0;
+            z-index: 0;
+            width: 100vw;
+            height: 100vh;
+            background-color: #18181b; /* fallback bg */
+        }
+        .slide.active {
+            opacity: 1;
+            z-index: 10;
+        }
+
+        /* Responsive Text Utilities */
+        /* Using vh ensures it fits vertical TV screens well */
+        .text-responsive-h1 { font-size: 13vh; line-height: 1.1; }
+        .text-responsive-h2 { font-size: 8vh; line-height: 1.2; }
+        .text-responsive-price { font-size: 18vh; line-height: 1; }
+        .text-responsive-desc { font-size: 4.5vh; line-height: 1.4; }
+        .text-responsive-badge { font-size: 2.5vh; letter-spacing: 0.2em; }
+        .text-responsive-temp { font-size: 28vh; line-height: 1; }
+        
+        /* Forecast Grid */
+        .forecast-grid {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 1vw;
+            width: 100%;
+        }
+        .forecast-item {
+            background: rgba(255,255,255,0.07);
+            border-radius: 1rem;
+            padding: 1.5vh 0.5vw;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            backdrop-filter: blur(5px);
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+
+        /* --- Weather Animations --- */
+        @keyframes w-spin { to { transform: rotate(360deg); } }
+        @keyframes w-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-4px); } }
+        @keyframes w-float-delayed { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
+        @keyframes w-rain { 0% { transform: translateY(-5px); opacity: 0; } 30% { opacity: 1; } 100% { transform: translateY(20px); opacity: 0; } }
+        @keyframes w-flash { 0%, 90%, 100% { opacity: 0; } 92% { opacity: 1; } 93% { opacity: 0.2; } 94% { opacity: 1; } }
+        @keyframes w-pan { 0% { transform: translateX(-5px); opacity: 0.7; } 50% { transform: translateX(5px); opacity: 1; } 100% { transform: translateX(-5px); opacity: 0.7; } }
+        
+        .anim-spin { animation: w-spin 12s linear infinite; transform-origin: 32px 32px; }
+        .anim-float { animation: w-float 5s ease-in-out infinite; }
+        .anim-float-d { animation: w-float-delayed 6s ease-in-out infinite; animation-delay: 1s; }
+        .anim-rain-1 { animation: w-rain 1s linear infinite; }
+        .anim-rain-2 { animation: w-rain 1.2s linear infinite; animation-delay: 0.4s; }
+        .anim-rain-3 { animation: w-rain 0.8s linear infinite; animation-delay: 0.2s; }
+        .anim-snow-1 { animation: w-rain 3s linear infinite; }
+        .anim-snow-2 { animation: w-rain 2.5s linear infinite; animation-delay: 1s; }
+        .anim-flash { animation: w-flash 5s infinite; }
+        .anim-pan { animation: w-pan 4s ease-in-out infinite; }
+
+        /* --- Progress Bar Animation --- */
+        @keyframes progress {
+            0% { width: 0%; }
+            100% { width: 100%; }
+        }
+        .animate-progress {
+            animation-name: progress;
+            animation-timing-function: linear;
+            animation-fill-mode: forwards;
+        }
+    </style>
+<script type="importmap">
+{
+  "imports": {
+    "@google/genai": "https://esm.sh/@google/genai@^1.35.0",
+    "react": "https://esm.sh/react@^19.2.3",
+    "react/": "https://esm.sh/react@^19.2.3/",
+    "lucide-react": "https://esm.sh/lucide-react@^0.562.0"
+  }
+}
+</script>
+</head>
+<body>
+    <div id="app" class="relative w-screen h-screen bg-black">
+        <!-- Slides injected here -->
+    </div>
+
+    <div id="loading" class="absolute inset-0 flex items-center justify-center bg-zinc-900 z-50 transition-opacity duration-500">
+        <h1 class="text-4xl text-white animate-pulse">Loading Specials...</h1>
+    </div>
+
+    <script>
+        // --- DATA ---
+        const LOGO_URL = "./Coasters-Logo-Web.png";
+        
+        const SPECIALS = [
+            { id: 'mon', day: 'Monday', title: 'Burger Night', price: '$20', description: 'Start your week right with our famous gourmet burger, served with golden fries and a handle of beer or house wine.', imageUrl: './burger-night.jpg', highlightColor: '#eab308' },
+            { id: 'tue', day: 'Tuesday', title: 'Steak Night', price: '$25', description: 'Juicy 250g Sirloin steak cooked to your liking, served with salad, fries, and your choice of mushroom or peppercorn sauce.', imageUrl: './steak-night.jpg', highlightColor: '#ef4444' },
+            { id: 'wed', day: 'Wednesday', title: 'Schnitzel & Pint', price: '$22', description: 'Crispy golden chicken schnitzel topped with gravy or parmigiana style. Includes a pint of tap beer.', imageUrl: './schnitzel.jpg', highlightColor: '#f97316' },
+            { id: 'thu', day: 'Thursday', title: 'BBQ Ribs', price: '$24', description: 'Slow-cooked pork ribs smothered in our house-made smoky BBQ sauce, served with slaw and wedges.', imageUrl: './ribs.jpg', highlightColor: '#8b5cf6' },
+            { id: 'fri', day: 'Friday', title: 'Fish & Chips', price: '$20', description: 'Traditional beer-battered blue cod served with tartare sauce, lemon, and a heap of chunky fries.', imageUrl: './fish-chips.jpg', highlightColor: '#3b82f6' },
+            { id: 'sat', day: 'Saturday', title: 'Chef\'s Platter', price: '$45', description: 'A sharing board for two featuring cured meats, cheeses, pickles, crackers, and hot bites. Perfect for a relaxed evening.', imageUrl: './platter.jpg', highlightColor: '#10b981' },
+            { id: 'sun', day: 'Sunday', title: 'Sunday Roast', price: '$24', description: 'Classic roast of the day with roast potatoes, seasonal vegetables, yorkshire pudding and rich gravy.', imageUrl: './roast.jpg', highlightColor: '#ef4444' }
+        ];
+
+        const SLIDE_DURATION = 30000;
+        const WEATHER_API_URL = "https://api.open-meteo.com/v1/forecast?latitude=-43.5321&longitude=172.6362&current=temperature_2m,weather_code&daily=weather_code,temperature_2m_max,temperature_2m_min&timezone=Pacific%2FAuckland";
+
+        // Animated Icons Generator
+        const getWeatherIcon = (code) => {
+            const viewBox = 'viewBox="0 0 64 64"';
+            
+            // Defs for gradients (reused)
+            const defs = `
+                <defs>
+                    <linearGradient id="gradSun" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" style="stop-color:#FDB813;stop-opacity:1" />
+                        <stop offset="100%" style="stop-color:#F59E0B;stop-opacity:1" />
+                    </linearGradient>
+                    <linearGradient id="gradCloud" x1="0%" y1="0%" x2="0%" y2="100%">
+                        <stop offset="0%" style="stop-color:#FFFFFF;stop-opacity:1" />
+                        <stop offset="100%" style="stop-color:#E5E7EB;stop-opacity:1" />
+                    </linearGradient>
+                    <linearGradient id="gradRain" x1="0%" y1="0%" x2="0%" y2="100%">
+                        <stop offset="0%" style="stop-color:#60A5FA;stop-opacity:1" />
+                        <stop offset="100%" style="stop-color:#3B82F6;stop-opacity:1" />
+                    </linearGradient>
+                </defs>
+            `;
+
+            // Clear (Sun)
+            if (code === 0) return `
+                <svg ${viewBox} class="w-full h-full overflow-visible">
+                    ${defs}
+                    <g class="anim-spin">
+                        <circle cx="32" cy="32" r="14" fill="url(#gradSun)" />
+                        <path d="M32 6V12 M32 52V58 M58 32H52 M12 32H6 M50.4 13.6L46.1 17.9 M17.9 46.1L13.6 50.4 M50.4 50.4L46.1 46.1 M17.9 17.9L13.6 13.6" stroke="url(#gradSun)" stroke-width="4" stroke-linecap="round" />
+                    </g>
+                </svg>`;
+                
+            // Partly Cloudy
+            if (code <= 3) return `
+                <svg ${viewBox} class="w-full h-full overflow-visible">
+                    ${defs}
+                    <g class="anim-spin" style="transform-origin: 40px 24px; opacity: 0.8;">
+                        <circle cx="40" cy="24" r="10" fill="url(#gradSun)" />
+                        <path d="M40 8V12 M40 36V40 M56 24H52 M28 24H24" stroke="url(#gradSun)" stroke-width="3" stroke-linecap="round" />
+                    </g>
+                    <path class="anim-float" d="M46 48H18c-4.4 0-8-3.6-8-8 0-4.1 3.1-7.5 7.1-7.9.6-4.6 4.5-8.1 9.2-8.1 3.5 0 6.6 1.9 8.3 4.8 1.1-.5 2.3-.8 3.6-.8 4.4 0 8 3.6 8 8 0 4.4-3.6 8-8 8z" fill="url(#gradCloud)" />
+                </svg>`;
+                
+            // Fog
+            if (code <= 48) return `
+                <svg ${viewBox} class="w-full h-full overflow-visible">
+                    <g class="anim-pan" stroke="#9CA3AF" stroke-width="3" stroke-linecap="round">
+                        <line x1="10" y1="20" x2="40" y2="20" />
+                        <line x1="24" y1="32" x2="54" y2="32" />
+                        <line x1="14" y1="44" x2="44" y2="44" />
+                    </g>
+                </svg>`;
+
+            // Rain & Showers
+            if (code <= 67 || (code >= 80 && code <= 82)) return `
+                <svg ${viewBox} class="w-full h-full overflow-visible">
+                    ${defs}
+                    <path class="anim-float" d="M46 38H18c-4.4 0-8-3.6-8-8 0-4.1 3.1-7.5 7.1-7.9.6-4.6 4.5-8.1 9.2-8.1 3.5 0 6.6 1.9 8.3 4.8 1.1-.5 2.3-.8 3.6-.8 4.4 0 8 3.6 8 8 0 4.4-3.6 8-8 8z" fill="url(#gradCloud)" />
+                    <g fill="url(#gradRain)">
+                        <rect x="22" y="42" width="3" height="6" rx="1.5" class="anim-rain-1" />
+                        <rect x="30" y="42" width="3" height="6" rx="1.5" class="anim-rain-2" />
+                        <rect x="38" y="42" width="3" height="6" rx="1.5" class="anim-rain-3" />
+                    </g>
+                </svg>`;
+                
+            // Snow
+            if (code <= 77) return `
+                <svg ${viewBox} class="w-full h-full overflow-visible">
+                    ${defs}
+                    <path class="anim-float" d="M46 38H18c-4.4 0-8-3.6-8-8 0-4.1 3.1-7.5 7.1-7.9.6-4.6 4.5-8.1 9.2-8.1 3.5 0 6.6 1.9 8.3 4.8 1.1-.5 2.3-.8 3.6-.8 4.4 0 8 3.6 8 8 0 4.4-3.6 8-8 8z" fill="url(#gradCloud)" />
+                    <g fill="#FFFFFF">
+                        <circle cx="24" cy="46" r="2" class="anim-snow-1" />
+                        <circle cx="36" cy="44" r="2" class="anim-snow-2" />
+                    </g>
+                </svg>`;
+
+            // Thunderstorm
+            if (code >= 95) return `
+                <svg ${viewBox} class="w-full h-full overflow-visible">
+                    ${defs}
+                    <path class="anim-float-d" d="M46 38H18c-4.4 0-8-3.6-8-8 0-4.1 3.1-7.5 7.1-7.9.6-4.6 4.5-8.1 9.2-8.1 3.5 0 6.6 1.9 8.3 4.8 1.1-.5 2.3-.8 3.6-.8 4.4 0 8 3.6 8 8 0 4.4-3.6 8-8 8z" fill="#6B7280" />
+                    <path class="anim-flash" d="M30 36 L24 48 L30 48 L26 60 L38 44 L32 44 Z" fill="#F59E0B" stroke="#FEF3C7" stroke-width="1" />
+                </svg>`;
+
+            // Default
+            return `
+                <svg ${viewBox} class="w-full h-full">
+                    ${defs}
+                    <path d="M46 44H18c-4.4 0-8-3.6-8-8 0-4.1 3.1-7.5 7.1-7.9.6-4.6 4.5-8.1 9.2-8.1 3.5 0 6.6 1.9 8.3 4.8 1.1-.5 2.3-.8 3.6-.8 4.4 0 8 3.6 8 8 0 4.4-3.6 8-8 8z" fill="url(#gradCloud)" />
+                </svg>`;
+        };
+
+        const getWeatherDesc = (code) => {
+            if (code === 0) return "Clear Sky";
+            if (code <= 3) return "Partly Cloudy";
+            if (code <= 48) return "Foggy";
+            if (code <= 67) return "Rainy";
+            if (code <= 77) return "Snow";
+            if (code <= 82) return "Showers";
+            return "Thunderstorms";
+        };
+
+        const getDayName = (dateStr) => {
+            const date = new Date(dateStr);
+            return date.toLocaleDateString('en-NZ', { weekday: 'short' });
+        };
+
+        // --- CORE ---
+
+        async function initApp() {
+            const app = document.getElementById('app');
+            const loading = document.getElementById('loading');
+            
+            // 1. Prepare Initial Slides (Specials)
+            let slidesData = SPECIALS.map(s => ({ ...s, type: 'special' }));
+
+            // 2. Fetch Weather (Non-blocking UI update if possible, but for simplicity we wait briefly or fail gracefully)
+            try {
+                // Timeout promise to prevent hanging
+                const fetchPromise = fetch(WEATHER_API_URL).then(r => r.json());
+                const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 3000));
+                
+                const data = await Promise.race([fetchPromise, timeoutPromise]);
+                
+                // Add Weather Slides if successful
+                if (data && data.current && data.daily) {
+                    slidesData.push({
+                        type: 'weather-current',
+                        temp: Math.round(data.current.temperature_2m),
+                        code: data.current.weather_code
+                    });
+                    slidesData.push({
+                        type: 'weather-forecast',
+                        daily: data.daily
+                    });
+                }
+            } catch (e) {
+                console.log("Weather fetch failed or timed out, skipping weather slides.", e);
+            }
+
+            // 3. Render
+            app.innerHTML = slidesData.map((slide, index) => {
+                if (slide.type === 'special') return renderSpecial(slide, index);
+                if (slide.type === 'weather-current') return renderWeatherCurrent(slide, index);
+                if (slide.type === 'weather-forecast') return renderForecast(slide, index);
+            }).join('') + renderProgressBar();
+
+            // 4. Start Slideshow
+            loading.style.opacity = '0';
+            setTimeout(() => loading.remove(), 500);
+
+            let currentIndex = 0;
+            const slideElements = document.querySelectorAll('.slide');
+            const progressBar = document.getElementById('progress-bar');
+            
+            // Set animation duration
+            progressBar.style.animationDuration = `${SLIDE_DURATION}ms`;
+
+            const activate = (idx) => {
+                slideElements.forEach((el, i) => {
+                    el.classList.toggle('active', i === idx);
+                });
+                
+                // Reset and start progress bar animation
+                progressBar.classList.remove('animate-progress');
+                void progressBar.offsetWidth; // Force reflow
+                progressBar.classList.add('animate-progress');
+            };
+
+            // Start loop
+            activate(0);
+
+            // Trigger next slide when progress bar fills
+            progressBar.addEventListener('animationend', () => {
+                currentIndex = (currentIndex + 1) % slideElements.length;
+                activate(currentIndex);
+            });
+        }
+
+        // --- TEMPLATES ---
+
+        function renderSpecial(data, idx) {
+            return `
+            <div class="slide bg-zinc-900" id="slide-${idx}">
+                <!-- Background Image -->
+                <div class="absolute inset-0 overflow-hidden">
+                    <img src="${data.imageUrl}" class="w-full h-full object-cover opacity-60 animate-ken-burns" onerror="this.style.display='none'">
+                    <div class="absolute inset-0 bg-gradient-to-t from-black via-zinc-900/70 to-zinc-900/40"></div>
+                </div>
+
+                <!-- Branding -->
+                <div class="absolute top-[5vh] left-[5vw] z-30">
+                     <img src="${LOGO_URL}" class="w-[20vw] drop-shadow-xl" alt="Coasters Tavern" onerror="this.style.display='none'">
+                </div>
+
+                <!-- Content Container -->
+                <div class="absolute inset-0 flex flex-col justify-center items-center text-center px-[5vw] z-20">
+                    
+                    <div class="mb-[3vh]">
+                        <span class="inline-block px-[2vw] py-[1vh] uppercase font-bold text-white bg-black/50 backdrop-blur-md rounded-full border border-white/20 text-responsive-badge">
+                            ${data.day} Special
+                        </span>
+                    </div>
+
+                    <h1 class="text-responsive-h1 font-bold mb-[2vh] text-white drop-shadow-2xl serif">
+                        ${data.title}
+                    </h1>
+
+                    <div class="h-[1vh] w-[15vw] mb-[4vh] rounded" style="background-color: ${data.highlightColor}"></div>
+
+                    <p class="text-responsive-desc text-zinc-100 max-w-[80vw] mb-[5vh] font-light drop-shadow-lg">
+                        ${data.description}
+                    </p>
+
+                    <div class="relative px-[4vw] py-[1vh] bg-black/80 border border-white/20 rounded-2xl backdrop-blur-md">
+                        <span class="text-responsive-price font-bold text-white tracking-tighter block">
+                            ${data.price}
+                        </span>
+                    </div>
+                </div>
+            </div>`;
+        }
+
+        function renderWeatherCurrent(data, idx) {
+            return `
+            <div class="slide bg-zinc-900" id="slide-${idx}">
+                <div class="absolute inset-0 bg-gradient-to-br from-blue-900 via-zinc-900 to-black"></div>
+                
+                <div class="absolute top-[5vh] left-[5vw] z-30">
+                     <img src="${LOGO_URL}" class="w-[20vw] drop-shadow-xl" alt="Coasters Tavern" onerror="this.style.display='none'">
+                </div>
+
+                <div class="absolute inset-0 flex flex-col justify-center items-center text-center p-[5vh] z-20">
+                     <h2 class="text-responsive-h2 uppercase tracking-widest text-blue-300 mb-[4vh] font-bold">Live Weather</h2>
+                     
+                     <div class="w-[20vh] h-[20vh] mb-[4vh]">
+                        ${getWeatherIcon(data.code)}
+                     </div>
+                     
+                     <h1 class="text-responsive-temp font-bold text-white mb-[2vh]">${data.temp}&deg;</h1>
+                     
+                     <p class="text-responsive-desc text-zinc-300 font-light uppercase tracking-wide">
+                        ${getWeatherDesc(data.code)}
+                     </p>
+                </div>
+            </div>`;
+        }
+
+        function renderForecast(data, idx) {
+            const daily = data.daily;
+            let gridHtml = '';
+            // Display next 7 days
+            for(let i = 0; i < 7; i++) {
+                gridHtml += `
+                    <div class="forecast-item">
+                        <span class="text-[2.5vh] text-zinc-400 font-bold uppercase mb-[1vh]">${getDayName(daily.time[i])}</span>
+                        <div class="w-[8vh] h-[8vh] mb-[1vh]">
+                            ${getWeatherIcon(daily.weather_code[i])}
+                        </div>
+                        <div class="flex flex-col items-center">
+                             <span class="text-[5vh] font-bold text-white leading-none">${Math.round(daily.temperature_2m_max[i])}&deg;</span>
+                             <span class="text-[3vh] font-medium text-zinc-500">${Math.round(daily.temperature_2m_min[i])}&deg;</span>
+                        </div>
+                    </div>
+                `;
+            }
+
+            return `
+            <div class="slide bg-zinc-900" id="slide-${idx}">
+                <div class="absolute inset-0 bg-gradient-to-br from-slate-900 to-zinc-950"></div>
+                
+                <div class="absolute top-[5vh] left-[5vw] z-30">
+                     <img src="${LOGO_URL}" class="w-[20vw] drop-shadow-xl" alt="Coasters Tavern" onerror="this.style.display='none'">
+                </div>
+
+                <div class="absolute inset-0 flex flex-col justify-center items-center px-[5vw] py-[5vh] z-20">
+                     <h2 class="text-responsive-h2 font-serif text-white mb-[6vh] border-b-2 border-amber-500 pb-[1vh] px-[5vw]">7 Day Forecast</h2>
+                     
+                     <div class="forecast-grid">
+                        ${gridHtml}
+                     </div>
+                </div>
+            </div>`;
+        }
+        
+        function renderProgressBar() {
+            return `
+            <div class="absolute bottom-0 left-0 w-full h-[1.5vh] bg-zinc-900/50 z-50 border-t border-white/5">
+                <div id="progress-bar" class="h-full w-0 shadow-[0_0_15px_rgba(251,191,36,0.8)]" 
+                     style="background: linear-gradient(90deg, #b45309, #fbbf24, #f59e0b, #b45309);">
+                </div>
+            </div>`;
+        }
+
+        document.addEventListener('DOMContentLoaded', initApp);
+
+    </script>
+</body>
+</html>
