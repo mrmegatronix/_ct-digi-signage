@@ -314,7 +314,17 @@
                 void progressBar.offsetWidth; // Force reflow
                 progressBar.classList.add('animate-progress');
                 progressBar.style.animationPlayState = isPaused || isLocked ? 'paused' : 'running';
+
+                clearTimeout(slideTimeout);
+                if (!isPaused && !isLocked) {
+                    slideTimeout = setTimeout(() => {
+                        currentIndex = (currentIndex + 1) % slideElements.length;
+                        activate(currentIndex);
+                    }, slideDuration + 300);
+                }
             };
+
+            let slideTimeout = null;
 
             // Start loop
             activate(0);
@@ -322,6 +332,7 @@
             // Trigger next slide when progress bar fills
             progressBar.addEventListener('animationend', () => {
                 if (!isPaused && !isLocked) {
+                    clearTimeout(slideTimeout);
                     currentIndex = (currentIndex + 1) % slideElements.length;
                     activate(currentIndex);
                 }
